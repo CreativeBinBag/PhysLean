@@ -35,6 +35,8 @@ these correspond to physical observables.
 
 - `adjoint_add_le_add_adjoint` : The inequality `U₁† + U₂† ≤ (U₁ + U₂)†` when `U₁ + U₂` has
     dense domain.
+- `adjoint_compRestricted_le_compRestricted_adjoint` : The inequality `U† ∘ᵣ V† ≤ (V ∘ᵣ U)†`
+    when `V` and `V ∘ᵣ U` have dense domain.
 - `IsEssentiallySelfAdjoint.unique_self_adjoint_extension` : The closure of an essentially
     self-adjoint unbounded operator is its unique self-adjoint extension.
 - `IsUnbounded.adjoint` : The adjoint of an unbounded operator is also unbounded.
@@ -47,6 +49,7 @@ these correspond to physical observables.
 - A. General
   - A.1. DistribMulAction
   - A.2. Finite sums
+  - A.3. Restricted composition
 - B. Operators on inner product/Hilbert spaces
   - B.1. Definitions
   - B.2. Dense domain
@@ -79,6 +82,8 @@ on an inner product/Hilbert space structure.
 
 section General
 
+open Submodule
+
 variable {R : Type*} [Ring R]
 variable {E : Type*} [AddCommGroup E] [Module R E]
 variable {F : Type*} [AddCommGroup F] [Module R F]
@@ -103,8 +108,6 @@ end
 
 section
 
-open Submodule
-
 variable {α : Type*} [Fintype α] (f : α → E →ₗ.[R] F)
 
 /-- A finite sum of partial linear maps.
@@ -124,6 +127,66 @@ lemma sum_apply (ψ : (sum f).domain) : sum f ψ = ∑ a, f a ⟨ψ, sum_domain_
 
 end
 
+/-!
+### A.3. Restricted composition
+
+The composition of two partial linear maps `g : F →ₗ.[R] G` and `f : E →ₗ.[R] F` is defined
+only if the range of `f` is contained in the domain of `g` (c.f. `LinearPMap.comp`).
+`g.compRestricted f` (`g ∘ᵣ f`) is defined to be the composition of `g` with the restriction of `f`
+to exactly those `x : f.domain` for which `f x ∈ g.domain`. This allows one to work with the
+composition of partial linear maps while having the domain implicitly accounted for.
+-/
+
+section
+
+variable {G : Type*} [AddCommGroup G] [Module R G]
+
+/-- `g ∘ᵣ f` is the composition of `g` with `f` restricted to a domain consisting of exactly those
+  `x : f.domain` for which `f x ∈ g.domain`. -/
+def compRestricted (g : F →ₗ.[R] G) (f : E →ₗ.[R] F) : E →ₗ.[R] G :=
+  g.comp (f.domRestrict <| (g.domain.comap f.toFun).map f.domain.subtype) (by
+    intro ⟨x, h, _⟩
+    simp only [map_coe, subtype_apply, comap_coe, Set.mem_image, Set.mem_preimage,
+      toFun_eq_coe, SetLike.mem_coe] at h
+    obtain ⟨y, hy, hy'⟩ := h
+    rw [domRestrict_apply hy'.symm]
+    exact hy)
+
+@[inherit_doc compRestricted]
+infixr:80 " ∘ᵣ " => compRestricted
+
+lemma mem_compRestricted_domain_iff {g : F →ₗ.[R] G} {f : E →ₗ.[R] F} {x : E} :
+    x ∈ (g ∘ᵣ f).domain ↔ ∃ h : x ∈ f.domain, f ⟨x, h⟩ ∈ g.domain := by
+  change x ∈ (g.domain.comap f.toFun).map f.domain.subtype ⊓ f.domain ↔ _
+  simp
+
+lemma mem_domain_of_mem_compRestricted_domain
+    {g : F →ₗ.[R] G} {f : E →ₗ.[R] F} (x : (g ∘ᵣ f).domain) : f ⟨x, x.2.2⟩ ∈ g.domain := by
+  obtain ⟨_, h⟩ := mem_compRestricted_domain_iff.mp x.2
+  exact h
+
+@[simp]
+lemma compRestricted_apply {g : F →ₗ.[R] G} {f : E →ₗ.[R] F} (x : (g ∘ᵣ f).domain) :
+    (g ∘ᵣ f) x = g ⟨f ⟨x, x.2.2⟩, mem_domain_of_mem_compRestricted_domain x⟩ :=
+  rfl
+
+/-- `compRestricted` is the same as `comp` when the range of `f` is contained in `g.domain`. -/
+lemma compRestricted_eq_comp
+    {g : F →ₗ.[R] G} {f : E →ₗ.[R] F} (h : ∀ x : f.domain, f x ∈ g.domain) :
+    g ∘ᵣ f = g.comp f h := by
+  ext x
+  · change _ ↔ x ∈ f.domain
+    simp [mem_compRestricted_domain_iff, h]
+  · rfl
+
+/-- `compRestricted` is maximal amongst compositions of `g` with domain restrictions of `f`. -/
+lemma comp_le_compRestricted {g : F →ₗ.[R] G} {f : E →ₗ.[R] F} {S : Submodule R E}
+    (h : ∀ x : (f.domRestrict S).domain, f ⟨x, x.2.2⟩ ∈ g.domain) :
+    g.comp (f.domRestrict S) h ≤ g ∘ᵣ f :=
+  ⟨fun x hx ↦ mem_compRestricted_domain_iff.mpr ⟨hx.2, h ⟨x, hx⟩⟩, by aesop⟩
+
+end
+
 end General
 
 /-!
@@ -140,9 +203,11 @@ open Complex ComplexConjugate
 variable
   {H : Type*} [NormedAddCommGroup H] [InnerProductSpace ℂ H]
   {H' : Type*} [NormedAddCommGroup H'] [InnerProductSpace ℂ H']
+  {H'' : Type*} [NormedAddCommGroup H''] [InnerProductSpace ℂ H'']
   {α : Type*} [Fintype α]
   {T T₁ T₂ : H →ₗ.[ℂ] H} {S : α → H →ₗ.[ℂ] H}
-  {U U₁ U₂ : H →ₗ.[ℂ] H'} {V : α → H →ₗ.[ℂ] H'}
+  {U U₁ U₂ : H →ₗ.[ℂ] H'} {W : α → H →ₗ.[ℂ] H'}
+  {V V₁ V₂ : H' →ₗ.[ℂ] H''}
 
 instance : IsScalarTower ℝ ℂ H := IsScalarTower.complexToReal
 
@@ -214,8 +279,8 @@ lemma HasDenseDomain.sub_of_le (h₁ : U₁.HasDenseDomain) (h_le : U₁.domain 
   h₁.mono (by simp [h_le, sub_domain])
 
 lemma HasDenseDomain.sum_of_le
-    {E : Submodule ℂ H} (hE : Dense (E : Set H)) (h : ∀ a, E ≤ (V a).domain) :
-    (sum V).HasDenseDomain :=
+    {E : Submodule ℂ H} (hE : Dense (E : Set H)) (h : ∀ a, E ≤ (W a).domain) :
+    (sum W).HasDenseDomain :=
   hE.mono (by simp [sum_domain, h])
 
 /-!
@@ -366,6 +431,20 @@ lemma adjoint_add_le_add_adjoint [CompleteSpace H]
       adjoint_isFormalAdjoint h₁ ⟨u, u.2.1⟩ ⟨w, w.2.1⟩,
       adjoint_isFormalAdjoint h₂ ⟨u, u.2.2⟩ ⟨w, w.2.2⟩]
 
+lemma adjoint_compRestricted_le_compRestricted_adjoint [CompleteSpace H] [CompleteSpace H']
+    (hV : V.HasDenseDomain) (hVU : (V ∘ᵣ U).HasDenseDomain) : U† ∘ᵣ V† ≤ (V ∘ᵣ U)† := by
+  have hU : U.HasDenseDomain := hVU.mono fun _ hx ↦ hx.2
+  have h : (U† ∘ᵣ V†).IsFormalAdjoint (V ∘ᵣ U) := by
+    intro x y
+    have hx := mem_domain_of_mem_compRestricted_domain x
+    have hy := mem_domain_of_mem_compRestricted_domain y
+    trans ⟪V† ⟨x, x.2.2⟩, U ⟨y, y.2.2⟩⟫_ℂ
+    · exact adjoint_isFormalAdjoint hU ⟨V† ⟨x, x.2.2⟩, hx⟩ ⟨y, y.2.2⟩
+    exact adjoint_isFormalAdjoint hV ⟨x, x.2.2⟩ ⟨U ⟨y, y.2.2⟩, hy⟩
+  constructor
+  · exact fun x hx ↦ mem_adjoint_domain_of_exists _ ⟨(U† ∘ᵣ V†) ⟨x, hx⟩, h ⟨x, hx⟩⟩
+  · exact fun x y hxy ↦ (adjoint_apply_eq hVU y <| hxy ▸ h x).symm
+
 /-!
 ### B.5. Symmetric operators
 -/
@@ -430,6 +509,14 @@ lemma add_adjoint_isSymmetric [CompleteSpace H] (h : T.HasDenseDomain) :
     inner_conj_symm, MulOpposite.op_inj] at h₂
   simp only [add_apply, inner_add_left, inner_add_right, h₁, h₂]
   exact add_comm _ _
+
+lemma IsSymmetric.compRestricted_self (h : T.IsSymmetric) : (T ∘ᵣ T).IsSymmetric := by
+  intro x y
+  have hTx := mem_domain_of_mem_compRestricted_domain x
+  have hTy := mem_domain_of_mem_compRestricted_domain y
+  trans ⟪T ⟨x, x.2.2⟩, T ⟨y, y.2.2⟩⟫_ℂ
+  · exact h ⟨T ⟨x, x.2.2⟩, hTx⟩ ⟨y, y.2.2⟩
+  exact h ⟨x, x.2.2⟩ ⟨T ⟨y, y.2.2⟩, hTy⟩
 
 @[aesop safe apply]
 lemma IsSymmetric.neg (h : T.IsSymmetric) : (-T).IsSymmetric := fun x y ↦ by simp [h x y]
